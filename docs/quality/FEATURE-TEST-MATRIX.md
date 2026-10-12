@@ -2,7 +2,7 @@
 
 **Base commit:** `436d7ecdd37298503ee1bb86d0349f9b7b2dc896`
 **Audit branch:** `test/fork-quality-baseline-20261012`
-**Status:** the complete pre-MCP slice passed at `14dff8f966873f7ab65bcf9de6bdfee141b6ca2a` (workflow 38278037131); latest new MCP tests and engine/MCP instrumentation still require their own exact-SHA confirmation.
+**Status:** the full eight-job suite passed at `0bc251fad1aa442d8d56e0d1725a9beeb4d22e59` (workflow 38313490657). New JSON-RPC version validation and native-file/MCP portability jobs must pass at the latest SHA.
 
 | ID | Component and contract | Unit/property tests | Integration/E2E | CI evidence | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -16,9 +16,10 @@
 | VC-FORMAT-002 | Corrupted base64 payloads (padding, noncanonical trailing bits) are rejected before importing images | `crates/format/src/lib.rs`, `base64_rejects_invalid_padding_and_noncanonical_trailing_bits`; `crates/format/tests/links.rs`, `malformed_embedded_image_base64_is_rejected_during_native_open` | Native file open | **PASS** 38278037131; newer head pending | PARTIAL |
 | VC-FORMAT-003 | Concurrent atomic saves never produce torn files and clean temporary artifacts; symlink writes preserve link and original after failed write | `crates/format/src/atomic.rs`, `simultaneous_writes_finish_with_one_complete_document`, `atomic_write_through_symlink_preserves_the_link_and_original_on_error` | Native file save | **PASS** 38278037131; newer head pending | PARTIAL |
 | VC-FORMAT-001 | Native save/open, old `.drawcraft` compatibility, corruption rejection | `crates/format/tests/prop_format.rs`, `native_v3.rs`, `native_v4.rs` | Full editor reopen/export still required | **PASS** 38278037131; newer head pending | UNVERIFIED |
-| VC-MCP-002 | MCP batch replies preserve IDs/order and discard notifications; stdio responds only to requests | `crates/mcp/tests/protocol_props.rs`: `jsonrpc_batches_preserve_request_order_and_discard_notifications`, `stdio_transport_does_not_answer_notifications_or_client_responses` | Real `Server::serve` byte transport | New MCP/engine instrumented CI pending | PARTIAL |
-| VC-MCP-003 | Unknown tool arguments fail with -32602 without mutating the document; valid calls still work | `unknown_tool_arguments_are_rejected_without_mutating_the_document` | Headless document API | New MCP CI pending | PARTIAL |
-| VC-MCP-004 | Modern protocol cache hints marked private and latest document reads uncacheable; legacy override omits new fields | `negotiated_modern_protocol_exposes_private_cache_contracts_only_on_supported_methods` | Version negotiation | New MCP CI pending | PARTIAL |
+| VC-MCP-005 | MCP rejects missing/incorrect JSON-RPC versions before executing tools or stateful notifications; valid requests continue | `crates/mcp/tests/protocol_props.rs`: `missing_or_invalid_jsonrpc_version_never_executes_commands_or_notifications` | `Server::handle_line` | Latest SHA and Windows/macOS MCP jobs pending | PARTIAL |
+| VC-MCP-002 | MCP batch replies preserve IDs/order and discard notifications; stdio responds only to requests | `crates/mcp/tests/protocol_props.rs`: `jsonrpc_batches_preserve_request_order_and_discard_notifications`, `stdio_transport_does_not_answer_notifications_or_client_responses` | Real `Server::serve` byte transport | **PASS** 38313490657 (MCP+workspace); latest SHA pending | PARTIAL |
+| VC-MCP-003 | Unknown tool arguments fail with -32602 without mutating the document; valid calls still work | `unknown_tool_arguments_are_rejected_without_mutating_the_document` | Headless document API | **PASS** 38313490657 (MCP+workspace); latest SHA pending | PARTIAL |
+| VC-MCP-004 | Modern protocol cache hints marked private and latest document reads uncacheable; legacy override omits new fields | `negotiated_modern_protocol_exposes_private_cache_contracts_only_on_supported_methods` | Version negotiation | **PASS** 38313490657 (MCP+workspace); latest SHA pending | PARTIAL |
 | VC-SEC-001 | MCP file authority prevents read/write outside configured roots | `crates/mcp/tests/automation_roots.rs` | Real MCP protocol tests present | **PASS** 38278037131; newer head pending | UNVERIFIED |
 | VC-UI-001 | Desktop/web open, edit, undo/redo, save, restart, export | Components/commands under `apps/`, `crates/ui-egui/`, `crates/engine/` | Hardware/browser E2E missing proof | Not yet configured | UNVERIFIED |
 | VC-CLI-001 | Real CLI execution with document conversion and export | Several CLI integration files exist | Native process E2E must be captured | Not yet configured | UNVERIFIED |

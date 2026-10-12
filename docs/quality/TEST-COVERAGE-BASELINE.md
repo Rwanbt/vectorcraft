@@ -4,7 +4,7 @@
 **Repository:** `Rwanbt/vectorcraft`
 **Base:** `main` at `436d7ecdd37298503ee1bb86d0349f9b7b2dc896`
 **Audit branch:** `test/fork-quality-baseline-20261012`
-**Status:** PARTIALLY VERIFIED — full quality gate passed at `14dff8f966873f7ab65bcf9de6bdfee141b6ca2a`; new MCP regressions and engine/MCP coverage added subsequently require a new exact-SHA CI result.
+**Status:** PARTIALLY VERIFIED — full gate including four measured crates passed at `0bc251fad1aa442d8d56e0d1725a9beeb4d22e59`; the subsequent strict JSON-RPC version check and Windows/macOS document/MCP gates require exact-SHA validation.
 
 ## Evidence collected before the first fork quality run
 
@@ -33,15 +33,17 @@ cargo xtask ci
 
 **First actual geometry-only measured values (source-file rows, SHA `8f04b29f8c965b1b43362cebdef3d87b8d106d82`):** lines 1,925/2,034 = **94.64%**; functions 302/326 = **92.64%**; regions 4,857/5,158 = **94.16%**. Source: [LLVM coverage run 38269159711](https://github.com/Rwanbt/vectorcraft/actions/runs/38269159711), job `Linux - instrumented geometry baseline`. The initial unscoped `cargo llvm-cov report` command also included unrelated crates, resulting in a misleading workspace-wide TOTAL of 1.69% lines; **do not cite that number as geometry or whole-workspace coverage**. This PR changes report generation to `report -p vectorcraft-geom` and adds a JSON source-scope guard. Remeasure after the additional tests; earlier numbers are a baseline, not the final PR value.
 
-**Fully green CI at SHA `14dff8f966873f7ab65bcf9de6bdfee141b6ca2a`:** [run 38278037131](https://github.com/Rwanbt/vectorcraft/actions/runs/38278037131), all five jobs passing, plus Affinity 3 corpus and Packaging lint.
+**Fully green CI at SHA `0bc251fad1aa442d8d56e0d1725a9beeb4d22e59`:** [run 38313490657](https://github.com/Rwanbt/vectorcraft/actions/runs/38313490657), **all eight jobs passed**, plus Affinity 3 corpus and Packaging lint. The geometry/format rows below use the latest run's values, identical line/function counts to the earlier checkpoint.
 
 | Source package (isolated) | Lines | Functions | Regions | Artifact ID |
 | --- | --- | --- | --- | --- |
-| `vectorcraft-geom` (10 source files) | **2,037/2,114 = 96.36%** | 314/334 = 94.01% | 5,146/5,384 = 95.58% | `11759364528` |
-| `vectorcraft-format` (3 source files) | **583/601 = 97.00%** | 106/111 = 95.50% | 1,486/1,548 = 95.99% | `11760706753` |
+| `vectorcraft-geom` (10 source files) | **2,037/2,114 = 96.36%** | 314/334 = 94.01% | 5,146/5,384 = 95.58% | `11775902884` |
+| `vectorcraft-format` (3 source files) | **583/601 = 97.00%** | 106/111 = 95.50% | 1,486/1,548 = 95.99% | `11776505239` |
+| `vectorcraft-engine` (289 source files) | **75,287/77,831 = 96.73%** | 11,326/11,995 = 94.42% | 215,256/223,795 = 96.18% | `11776456712` |
+| `vectorcraft-mcp` (20 source files) | **2,511/2,612 = 96.13%** | 319/351 = 90.88% | 7,133/7,505 = 95.04% | `11776097634` |
 
-The engine and MCP coverage jobs were added after this run; their percentages are **NOT MEASURED** until those exact-SHA jobs complete. Full-workspace and branch-level coverage also remain unmeasured; do not extrapolate geometry or format percentages to the product.
+Engine and MCP LLVM reports are now independently measured; **whole-product and branch-level coverage remain unmeasured**. Do not extrapolate the four percentages to unmeasured crates/UI.
 
-**Exact harness inventory at SHA `14dff8f966873f7ab65bcf9de6bdfee141b6ca2a`:** the `cargo xtask stats --exact` TOTAL row reports 5,335 tests, 40 ignored and 5,300 in its last count column; preserve those distinct columns rather than inferring a pass count from subtraction. See Actions artifact `vectorcraft-exact-test-counts` ID `11763853322`. The workspace `cargo test --workspace` job itself passed. Re-enumerate after adding tests.
+**Exact harness inventory at SHA `0bc251fad1aa442d8d56e0d1725a9beeb4d22e59`:** `cargo xtask stats --exact` TOTAL row reports **5,340 declared**, 40 ignored, 5,305 in its last inventory column. This inventory is not the same thing as an executed/pass count. Artifact ID `11777083159`. All workspace tests passed in `cargo xtask ci`. New strict-protocol regression adds one more test, pending CI.
 
 Do not assign `VERIFIED` based on the presence of tests, nor assert a 100% target before instrumented evidence and justified exclusions.
