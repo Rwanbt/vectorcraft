@@ -231,6 +231,25 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  document-protocol-portability:
+    name: Native document and MCP - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vectorcraft-format-mcp-${{ matrix.os }}
+      - name: Test file data integrity and headless MCP protocol across platforms
+        run: cargo test -p vectorcraft-format -p vectorcraft-mcp --locked
+
   geometry-portability:
     name: Geometry regression - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
