@@ -31,7 +31,8 @@ impl Homography {
             return None;
         }
         let h = Self([[v[0], v[1], v[2]], [v[3], v[4], v[5]], [v[6], v[7], v[8]]]);
-        (h.det().abs() > 1e-15).then_some(h)
+        let det = h.det();
+        (det.is_finite() && det.abs() > 1e-15).then_some(h)
     }
 
     /// The nine row-major numbers.
@@ -46,10 +47,11 @@ impl Homography {
         let x = m[0][0] * p.x + m[0][1] * p.y + m[0][2];
         let y = m[1][0] * p.x + m[1][1] * p.y + m[1][2];
         let w = m[2][0] * p.x + m[2][1] * p.y + m[2][2];
-        if w <= 1e-9 || !x.is_finite() || !y.is_finite() {
+        if !w.is_finite() || w <= 1e-9 || !x.is_finite() || !y.is_finite() {
             return None;
         }
-        Some(Point::new(x / w, y / w))
+        let (x, y) = (x / w, y / w);
+        (x.is_finite() && y.is_finite()).then_some(Point::new(x, y))
     }
 
     pub fn det(&self) -> f64 {
@@ -150,6 +152,20 @@ mod tests {
         assert_eq!(Homography::from_array(a.to_array()), Some(a));
         assert!(Homography::from_array([f64::NAN; 9]).is_none());
         assert!(Homography::from_array([0.0; 9]).is_none());
+    }
+
+    #[test]
+    fn nonfinite_projective_coordinates_are_rejected() {
+        let p = Point::new(2.0, 3.0);
+        // Malformed matrices must not silently map to (0, 0) or a point containing NaN.
+        assert!(Homography([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, f64::INFINITY]]).apply(p).is_none());
+        assert!(Homography([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, f64::NAN]]).apply(p).is_none());
+        // Division can overflow even though x, y and w are individually finite.
+        let overflow = Homography([[f64::MAX, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1e-8]]);
+        assert!(overflow.apply(Point::new(1.0, 0.0)).is_none());
+        // A determinant that overflows cannot be used as an invertibility certificate.
+        let invalid = [f64::MAX, 0.0, 0.0, 0.0, f64::MAX, 0.0, 0.0, 0.0, 1.0];
+        assert!(Homography::from_array(invalid).is_none());
     }
 
     #[test]
