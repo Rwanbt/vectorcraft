@@ -52,55 +52,7 @@ jobs:
       - name: Collect actual harness test counts
         run: |
           cargo xtask stats --exact | tee test-counts.txt
-          if grep -Eq '[[:space:]]error[[:space:]]*
-  geometry-coverage:
-    name: Linux - instrumented geometry baseline
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
-      - name: Rust 1.95 with LLVM tools
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.95"
-          components: llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: vectorcraft-geom-cov
-      - name: Measure unit and integration coverage with real tests
-        run: |
-          mkdir -p coverage
-          cargo llvm-cov -p vectorcraft-geom --locked --lcov --output-path coverage/geom.lcov
-          cargo llvm-cov report --json --output-path coverage/geom.json
-          cargo llvm-cov report --summary-only
-      - name: Publish machine-readable baseline (no inferred percentages)
-        uses: actions/upload-artifact@v7
-        with:
-          name: vectorcraft-geometry-coverage
-          path: coverage/
-          if-no-files-found: error
-          retention-days: 30
-
-  geometry-portability:
-    name: Geometry regression - ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.95"
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: vectorcraft-geom-${{ matrix.os }}
-      - name: Portable deterministic geometry tests
-        run: cargo test -p vectorcraft-geom --locked
- test-counts.txt; then
+          if grep -Eq '[[:space:]]error[[:space:]]*$' test-counts.txt; then
             echo "::error::At least one crate's test harness could not be enumerated"
             exit 1
           fi
