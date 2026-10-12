@@ -301,6 +301,10 @@ impl SubPath {
     /// keeps them. False when there is no such anchor or no direction (the neighbours coincide).
     pub fn smooth_anchor(&mut self, i: usize) -> bool {
         let n = self.anchors.len();
+        // Reject out-of-range indices before computing i + 1 (usize::MAX can overflow).
+        if i >= n {
+            return false;
+        }
         let prev = if i > 0 {
             Some(i - 1)
         } else if self.closed {
