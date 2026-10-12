@@ -54,12 +54,24 @@ pub fn constrain_angle(v: Vec2, step_deg: f64) -> Vec2 {
 /// [`constrain_angle`] in steps counted from `base_deg` (the Constrain Angle preference,
 /// counter-clockwise as seen on the y-down page).
 pub fn constrain_angle_from(v: Vec2, step_deg: f64, base_deg: f64) -> Vec2 {
+    // Step and base can come from user preferences. An invalid or zero step must not replace a
+    // finite drag vector with NaN coordinates (which would then enter the document).
+    if !step_deg.is_finite() || step_deg == 0.0 || !base_deg.is_finite() || !v.x.is_finite() || !v.y.is_finite() {
+        return v;
+    }
     let len = v.hypot();
-    if len < EPS {
+    if !len.is_finite() || len < EPS {
         return v;
     }
     let (step, base) = (step_deg.to_radians(), -base_deg.to_radians());
-    let a = base + ((v.y.atan2(v.x) - base) / step).round() * step;
+    let turns = (v.y.atan2(v.x) - base) / step;
+    if !turns.is_finite() {
+        return v;
+    }
+    let a = base + turns.round() * step;
+    if !a.is_finite() {
+        return v;
+    }
     Vec2::new(a.cos() * len, a.sin() * len)
 }
 
@@ -102,6 +114,18 @@ mod tests {
         assert!((deg(constrain_angle_from(Vec2::new(10.0, -4.0), 45.0, 30.0)) - 30.0).abs() < 1e-9);
         assert!((deg(constrain_angle_from(Vec2::new(3.0, -10.0), 45.0, 30.0)) - 75.0).abs() < 1e-9);
         assert!((deg(constrain_angle_from(Vec2::new(10.0, 1.0), 45.0, 30.0)) + 15.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn invalid_angle_constraint_preserves_finite_drag() {
+        let v = Vec2::new(3.0, 4.0);
+        assert_eq!(constrain_angle(v, 0.0), v);
+        assert_eq!(constrain_angle_from(v, -0.0, 30.0), v);
+        assert_eq!(constrain_angle_from(v, f64::INFINITY, 0.0), v);
+        assert_eq!(constrain_angle_from(v, 45.0, f64::NAN), v);
+        // An extremely small but nonzero step can overflow the turn count.
+        assert_eq!(constrain_angle_from(v, f64::MIN_POSITIVE, 0.0), v);
+        assert_eq!(constrain_angle_from(Vec2::new(f64::MAX, f64::MAX), 45.0, 0.0), Vec2::new(f64::MAX, f64::MAX));
     }
 
     #[test]
