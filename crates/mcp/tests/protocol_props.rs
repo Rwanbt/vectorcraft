@@ -217,6 +217,35 @@ fn framing_never_panics_on_malformed_messages() {
 }
 
 #[test]
+fn missing_or_invalid_jsonrpc_version_never_executes_commands_or_notifications() {
+    let mut s = server();
+    let before = doc_json(&document(&mut s));
+    for version in [Value::Null, json!("1.0"), json!(2), json!({}), json!("2.1")] {
+        let request = json!({
+            "jsonrpc": version,
+            "id": "bad-version",
+            "method": "tools/call",
+            "params": {"name": "draw_shape", "arguments": {"shape": "rectangle", "x": 1, "y": 1, "width": 8, "height": 8}}
+        });
+        let raw = s.handle_line(&request.to_string()).expect("an invalid request gets an error");
+        let reply: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(reply["id"], "bad-version");
+        assert_eq!(reply["error"]["code"], -32600, "{request}: {reply}");
+        assert_eq!(doc_json(&document(&mut s)), before, "{request} changed the document");
+    }
+    let missing = json!({"id": 7, "method": "ping"});
+    let response: Value = serde_json::from_str(&s.handle_line(&missing.to_string()).unwrap()).unwrap();
+    assert_eq!(response["error"]["code"], -32600);
+
+    for invalid_notification in [json!({"method": "notifications/initialized"}), json!({"jsonrpc": "1.0", "method": "notifications/initialized"})] {
+        assert!(s.handle_line(&invalid_notification.to_string()).is_none());
+        assert!(!s.is_initialized(), "invalid protocol notifications must not alter state");
+    }
+    assert_eq!(rpc(&mut s, 8, "ping", json!({}))["result"], json!({}));
+    assert!(!s.is_initialized(), "invalid frames must not poison future valid requests");
+}
+
+#[test]
 fn jsonrpc_batches_preserve_request_order_and_discard_notifications() {
     let mut s = server();
     let batch = json!([
