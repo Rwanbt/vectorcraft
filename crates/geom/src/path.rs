@@ -625,7 +625,7 @@ mod tests {
     #[test]
     fn bend_segment_rejects_singular_values_without_partial_mutation() {
         let original = SubPath::polyline(&[Point::new(0.0, 0.0), Point::new(10.0, 0.0)], false);
-        for t in [-1.0, 0.0, 1.0, 2.0, f64::NAN, f64::INFINITY, f64::MIN_POSITIVE] {
+        for t in [-1.0, 0.0, 1.0, 2.0, f64::NAN, f64::INFINITY, f64::from_bits(1)] {
             let mut sp = original.clone();
             assert!(!sp.bend_segment(0, t, kurbo::Vec2::new(0.0, 3.0)), "t={t}");
             assert_eq!(sp, original, "failed bend changed the path at t={t}");
