@@ -2,13 +2,16 @@
 
 **Base commit:** `436d7ecdd37298503ee1bb86d0349f9b7b2dc896`
 **Audit branch:** `test/fork-quality-baseline-20261012`
-**Status as written:** tests exist or were added; none has yet passed on a fork CI run.
+**Status:** geometry tests passed on Windows/macOS and under Linux LLVM instrumentation at SHA `8f04b29f8c965b1b43362cebdef3d87b8d106d82`. Newly added cases and latest SHA still require checks.
 
 | ID | Component and contract | Unit/property tests | Integration/E2E | CI evidence | Status |
 | --- | --- | --- | --- | --- | --- |
 | VC-GEOM-001 | Angle-constrained drag keeps a finite vector with zero/nonfinite/overflowing step or invalid base; valid steps still round normally | `crates/geom/src/lib.rs`, `invalid_angle_constraint_preserves_finite_drag`, preexisting `constrain_from_a_base_angle` | Tool gesture UI not verified | `geometry-coverage`, `geometry-portability`, `workspace-linux` pending | PARTIAL |
 | VC-GEOM-002 | Grid snapping keeps finite coordinates with invalid spacing/origin or arithmetic overflow; valid rounding unchanged | `crates/geom/src/snap.rs`, `invalid_grid_configuration_never_corrupts_finite_coordinates`, preexisting `grid` | Smart guides UI not verified | Same pending | PARTIAL |
 | VC-GEOM-004 | Projective transform rejects nonfinite homogeneous denominators, overflowed divisions and determinants | `crates/geom/src/projective.rs`, `nonfinite_projective_coordinates_are_rejected`, existing homography tests | UI perspective manipulation not verified | `geometry-coverage`, `geometry-portability`, `workspace-linux` pending | PARTIAL |
+| VC-GEOM-005 | Bending a path rejects endpoint, nonfinite and overflowed parameters without partial mutation; finite midpoint moves as requested | `crates/geom/src/path.rs`: `bend_segment_moves_the_midpoint_without_moving_endpoints`, `bend_segment_rejects_singular_values_without_partial_mutation` | Editor gesture not separately driven | Latest SHA pending | PARTIAL |
+| VC-GEOM-006 | Bézier tangents remain defined at repeated handles and collapsed curves; empty MoveTo subpaths omitted | `crates/geom/src/bez.rs`: `degenerate_quadratic_and_cubic_tangents_have_defined_fallbacks`, `non_drawing_moves_are_not_subpaths`, `straight_join_is_not_a_kink_but_right_angle_is` | Renderer/stroke integration not separately driven | Latest SHA pending | PARTIAL |
+| VC-GEOM-007 | Path cut and smooth-anchor invariants; seeded snapping, affine homography and periodic angles | `crates/geom/src/path.rs` + `crates/geom/tests/deterministic_properties.rs` (fixed seed 20261012) | Tool gesture UI not separately driven | Latest SHA pending | PARTIAL |
 | VC-GEOM-003 | Bézier conversions, bounding boxes, geometry properties | `crates/geom/tests/prop_geom.rs` | Command/render integration not assessed | Same pending | UNVERIFIED |
 | VC-FORMAT-001 | Native save/open, old `.drawcraft` compatibility, corruption rejection | `crates/format/tests/prop_format.rs`, `native_v3.rs`, `native_v4.rs` | Full editor reopen/export still required | `workspace-linux` pending | UNVERIFIED |
 | VC-SEC-001 | MCP file authority prevents read/write outside configured roots | `crates/mcp/tests/automation_roots.rs` | Real MCP protocol tests present | `workspace-linux` pending | UNVERIFIED |
