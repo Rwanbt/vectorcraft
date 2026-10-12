@@ -78,6 +78,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn non_drawing_moves_are_not_subpaths() {
+        let mut bp = BezPath::new();
+        bp.move_to((0.0, 0.0));
+        assert!(subpaths(&bp).is_empty());
+        bp.move_to((5.0, 5.0));
+        bp.line_to((6.0, 5.0));
+        assert_eq!(subpaths(&bp), vec![(1..3, false)]);
+    }
+
+    #[test]
+    fn degenerate_quadratic_and_cubic_tangents_have_defined_fallbacks() {
+        let q = PathSeg::Quad(kurbo::QuadBez::new((0.0, 0.0), (0.0, 0.0), (0.0, 10.0)));
+        assert_eq!(tangent(&q, 0.0), Vec2::new(0.0, 1.0), "use the chord when the quadratic derivative vanishes");
+        let cq = PathSeg::Quad(kurbo::QuadBez::new((1.0, 1.0), (1.0, 1.0), (1.0, 1.0)));
+        assert_eq!(tangent(&cq, 0.5), Vec2::new(1.0, 0.0));
+        let start = PathSeg::Cubic(kurbo::CubicBez::new((0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 10.0)));
+        assert_eq!(tangent(&start, 0.0), Vec2::new(0.0, 1.0), "the last differing control point defines the start direction");
+        let end = PathSeg::Cubic(kurbo::CubicBez::new((0.0, 0.0), (0.0, 10.0), (0.0, 20.0), (0.0, 20.0)));
+        assert_eq!(tangent(&end, 1.0), Vec2::new(0.0, 1.0), "the first differing control point defines the end direction");
+        let point = PathSeg::Cubic(kurbo::CubicBez::new((5.0, 5.0), (5.0, 5.0), (5.0, 5.0), (5.0, 5.0)));
+        assert_eq!(tangent(&point, 0.0), Vec2::new(1.0, 0.0));
+        assert_eq!(tangent(&point, 1.0), Vec2::new(1.0, 0.0));
+    }
+
+    #[test]
+    fn straight_join_is_not_a_kink_but_right_angle_is() {
+        let first = PathSeg::Line(kurbo::Line::new((0.0, 0.0), (10.0, 0.0)));
+        let straight = PathSeg::Line(kurbo::Line::new((10.0, 0.0), (20.0, 0.0)));
+        let corner = PathSeg::Line(kurbo::Line::new((10.0, 0.0), (10.0, 10.0)));
+        assert!(!kink(&first, &straight));
+        assert!(kink(&first, &corner));
+    }
+
+    #[test]
     fn subpaths_and_tangents() {
         let mut bp = BezPath::new();
         bp.move_to((0.0, 0.0));
