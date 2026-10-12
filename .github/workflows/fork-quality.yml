@@ -23,6 +23,19 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
+  format-fast:
+    name: Fast rustfmt preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: rustfmt
+      - name: Check Rust formatting before expensive workspace builds
+        run: cargo fmt --all -- --check
+
   workspace-linux:
     name: Linux - complete workspace quality gate
     runs-on: ubuntu-24.04
@@ -148,6 +161,72 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: vectorcraft-native-format-coverage
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 30
+
+  engine-mcp-coverage:
+    name: Linux - instrumented ${{ matrix.source }} baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: vectorcraft-engine
+            source: engine
+          - package: vectorcraft-mcp
+            source: mcp
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install native dependencies for engine and MCP tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libgtk-3-dev libasound2-dev libudev-dev \
+            libfontconfig1-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vectorcraft-${{ matrix.source }}-cov
+      - name: Run all tests and measure isolated package coverage
+        shell: bash
+        env:
+          PACKAGE: ${{ matrix.package }}
+          SOURCE: ${{ matrix.source }}
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov -p "$PACKAGE" --locked --no-report
+          cargo llvm-cov report -p "$PACKAGE" --lcov --output-path "coverage/$SOURCE.lcov"
+          cargo llvm-cov report -p "$PACKAGE" --json --output-path "coverage/$SOURCE.json"
+          cargo llvm-cov report -p "$PACKAGE" --summary-only | tee "coverage/$SOURCE-summary.txt"
+      - name: Reject foreign source files in coverage
+        shell: bash
+        env:
+          SOURCE: ${{ matrix.source }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          source = os.environ["SOURCE"]
+          with open(f"coverage/{source}.json", encoding="utf-8") as report:
+              coverage = json.load(report)
+          paths = [entry["filename"].replace("\\", "/") for section in coverage["data"] for entry in section["files"]]
+          if not paths:
+              raise SystemExit(f"{source}: coverage report unexpectedly empty")
+          foreign = [path for path in paths if f"/crates/{source}/src/" not in path]
+          if foreign:
+              raise SystemExit(f"{source}: unrelated source file(s) found: {foreign[:5]}")
+          print(f"{source}: validated coverage over {len(paths)} source files")
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vectorcraft-${{ matrix.source }}-coverage
           path: coverage/
           if-no-files-found: error
           retention-days: 30
