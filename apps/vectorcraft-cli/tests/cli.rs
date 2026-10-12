@@ -60,6 +60,24 @@ fn run_reports_errors() {
 }
 
 #[test]
+fn damaged_native_input_does_not_overwrite_an_export_target() {
+    let input = tmp("corrupt-native.vectorcraft");
+    let output = tmp("corrupt-native-target.svg");
+    // The envelope resembles a native file, but its document is invalid.
+    std::fs::write(&input, br#"{"format":"vectorcraft","version":4,"document":null}"#).unwrap();
+    std::fs::write(&output, b"preserve existing output").unwrap();
+    for args in [
+        vec!["convert", input.to_str().unwrap(), output.to_str().unwrap()],
+        vec!["run", "--in", input.to_str().unwrap(), "--export", output.to_str().unwrap()],
+    ] {
+        let result = Command::new(BIN).args(&args).output().unwrap();
+        assert!(!result.status.success(), "{args:?} accepted a damaged native document");
+        assert!(String::from_utf8_lossy(&result.stderr).contains("open"), "{args:?}: {result:?}");
+        assert_eq!(std::fs::read(&output).unwrap(), b"preserve existing output", "{args:?} overwrote user data");
+    }
+}
+
+#[test]
 fn mcp_headless_over_stdio() {
     let mut child = Command::new(BIN).args(["mcp", "--headless"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     {
