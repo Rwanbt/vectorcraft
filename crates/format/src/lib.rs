@@ -624,10 +624,7 @@ mod tests {
 
     #[test]
     fn base64_rejects_invalid_padding_and_noncanonical_trailing_bits() {
-        for invalid in [
-            "=", "A", "AAA", "A===", "====", "=AAA", "A=AA", "AA=A", "AA==AA==",
-            "AA=!", "TQ==TQ==", "TR==", "TWF=", "TQ==#", "____",
-        ] {
+        for invalid in ["=", "A", "AAA", "A===", "====", "=AAA", "A=AA", "AA=A", "AA==AA==", "AA=!", "TQ==TQ==", "TR==", "TWF=", "TQ==#", "____"] {
             assert_eq!(base64_decode(invalid), None, "{invalid:?} must not decode");
         }
         assert_eq!(base64_decode("TQ=="), Some(b"M".to_vec()));
