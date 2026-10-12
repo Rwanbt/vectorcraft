@@ -4,10 +4,11 @@ use kurbo::Point;
 
 /// Snap a value to a grid with the given spacing and origin.
 pub fn snap_to_grid(v: f64, spacing: f64, origin: f64) -> f64 {
-    if spacing <= 0.0 {
+    if !v.is_finite() || !origin.is_finite() || !spacing.is_finite() || spacing <= 0.0 {
         return v;
     }
-    ((v - origin) / spacing).round() * spacing + origin
+    let snapped = ((v - origin) / spacing).round() * spacing + origin;
+    if snapped.is_finite() { snapped } else { v }
 }
 
 pub fn snap_point_to_grid(p: Point, spacing: f64) -> Point {
@@ -36,6 +37,17 @@ mod tests {
         assert_eq!(snap_to_grid(16.0, 10.0, 0.0), 20.0);
         assert_eq!(snap_to_grid(16.0, 10.0, 3.0), 13.0);
         assert_eq!(snap_to_grid(16.0, 0.0, 0.0), 16.0);
+    }
+
+    #[test]
+    fn invalid_grid_configuration_never_corrupts_finite_coordinates() {
+        assert_eq!(snap_to_grid(13.0, f64::INFINITY, 0.0), 13.0);
+        assert_eq!(snap_to_grid(13.0, f64::NAN, 0.0), 13.0);
+        assert_eq!(snap_to_grid(13.0, 10.0, f64::INFINITY), 13.0);
+        assert_eq!(snap_to_grid(f64::MAX, f64::MIN_POSITIVE, -f64::MAX), f64::MAX);
+        assert_eq!(snap_point_to_grid(Point::new(13.0, 16.0), 0.0), Point::new(13.0, 16.0));
+        // Valid origin and spacing continue to use the same rounding contract.
+        assert_eq!(snap_to_grid(-16.0, 10.0, 3.0), -17.0);
     }
 
     #[test]
