@@ -61,3 +61,22 @@ fn link_details_round_trip_and_linked_only_images_save_their_preview() {
     let again: Value = serde_json::from_slice(&save(&back, false)).unwrap();
     assert_eq!(again["images"]["linked"], v["images"]["linked"]);
 }
+
+#[test]
+fn malformed_embedded_image_base64_is_rejected_during_native_open() {
+    let mut doc = Document::new(100.0, 100.0);
+    image(&mut doc, "payload", None);
+    doc.images.insert("payload".into(), ImageBlob::new("image/png", b"M".to_vec()));
+    let original: Value = serde_json::from_slice(&save(&doc, false)).unwrap();
+    assert_eq!(original["images"]["payload"]["data"], "TQ==");
+    for encoded in ["====", "=AAA", "TQ=A", "TR==", "TWF=", "TQ==TQ=="] {
+        let mut corrupted = original.clone();
+        corrupted["images"]["payload"]["data"] = Value::String(encoded.into());
+        let result = load(&serde_json::to_vec(&corrupted).unwrap());
+        assert!(
+            matches!(result, Err(vectorcraft_format::FormatError::BadImage(ref key)) if key == "payload"),
+            "bad image encoding {encoded:?} must be rejected as corrupt"
+        );
+    }
+    assert_eq!(load(&serde_json::to_vec(&original).unwrap()).unwrap().images["payload"].bytes.as_slice(), b"M");
+}

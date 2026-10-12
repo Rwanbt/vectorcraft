@@ -108,6 +108,50 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  format-coverage:
+    name: Linux - instrumented native format baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust 1.95 with LLVM tools
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vectorcraft-format-cov
+      - name: Run native format tests and collect isolated coverage
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov -p vectorcraft-format --locked --no-report
+          cargo llvm-cov report -p vectorcraft-format --lcov --output-path coverage/format.lcov
+          cargo llvm-cov report -p vectorcraft-format --json --output-path coverage/format.json
+          cargo llvm-cov report -p vectorcraft-format --summary-only | tee coverage/format-summary.txt
+      - name: Validate native format coverage has no unrelated crates
+        run: |
+          python3 - <<'PY'
+          import json
+          with open("coverage/format.json", encoding="utf-8") as report:
+              coverage = json.load(report)
+          paths = [entry["filename"].replace("\\", "/") for section in coverage["data"] for entry in section["files"]]
+          if not paths:
+              raise SystemExit("Format report unexpectedly has no source files")
+          outside = [path for path in paths if "/crates/format/src/" not in path]
+          if outside:
+              raise SystemExit(f"Format coverage included unrelated source: {outside[:5]}")
+          print(f"Validated format coverage across {len(paths)} source files")
+          PY
+      - name: Publish native format coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: vectorcraft-native-format-coverage
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 30
+
   geometry-portability:
     name: Geometry regression - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
