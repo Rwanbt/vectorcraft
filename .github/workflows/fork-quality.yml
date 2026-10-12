@@ -79,12 +79,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: vectorcraft-geom-cov
-      - name: Measure unit and integration coverage with real tests
+      - name: Measure geometry only (unit tests and integration tests)
         run: |
           mkdir -p coverage
-          cargo llvm-cov -p vectorcraft-geom --locked --lcov --output-path coverage/geom.lcov
-          cargo llvm-cov report --json --output-path coverage/geom.json
-          cargo llvm-cov report --summary-only
+          cargo llvm-cov -p vectorcraft-geom --locked --no-report
+          cargo llvm-cov report -p vectorcraft-geom --lcov --output-path coverage/geom.lcov
+          cargo llvm-cov report -p vectorcraft-geom --json --output-path coverage/geom.json
+          cargo llvm-cov report -p vectorcraft-geom --summary-only | tee coverage/geom-summary.txt
+      - name: Ensure geometry reports exclude unrelated workspace crates
+        run: |
+          python3 - <<'PY'
+          import json
+          with open("coverage/geom.json", encoding="utf-8") as report:
+              coverage = json.load(report)
+          paths = [entry["filename"].replace("\\", "/") for section in coverage["data"] for entry in section["files"]]
+          if not paths:
+              raise SystemExit("Geometry report unexpectedly has no source files")
+          outside = [path for path in paths if "/crates/geom/src/" not in path]
+          if outside:
+              raise SystemExit(f"Coverage included unrelated source files: {outside[:5]}")
+          print(f"Validated isolated geometry coverage across {len(paths)} source files")
+          PY
       - name: Publish machine-readable baseline (no inferred percentages)
         uses: actions/upload-artifact@v7
         with:
