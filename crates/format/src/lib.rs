@@ -626,12 +626,12 @@ mod tests {
     fn base64_rejects_invalid_padding_and_noncanonical_trailing_bits() {
         for invalid in [
             "=", "A", "AAA", "A===", "====", "=AAA", "A=AA", "AA=A", "AA==AA==",
-            "AA=A", "AA=A", "AA=!", "TQ==TQ==", "TR==", "TWF=", "TQ==#", "____",
+            "AA=!", "TQ==TQ==", "TR==", "TWF=", "TQ==#", "____",
         ] {
             assert_eq!(base64_decode(invalid), None, "{invalid:?} must not decode");
         }
         assert_eq!(base64_decode("TQ=="), Some(b"M".to_vec()));
-        assert_eq!(base64_decode(" T Q = = \\n"), Some(b"M".to_vec()));
+        assert_eq!(base64_decode(" T Q = = \n"), Some(b"M".to_vec()));
         assert_eq!(base64_decode("TWE="), Some(b"Ma".to_vec()));
         assert_eq!(base64_decode("TWFu"), Some(b"Man".to_vec()));
     }
