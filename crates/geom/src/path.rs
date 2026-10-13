@@ -257,10 +257,18 @@ impl SubPath {
     /// handle turns with the moved one. False when there is no such segment.
     pub fn bend_segment(&mut self, seg: usize, t: f64, dv: kurbo::Vec2) -> bool {
         let n = self.anchors.len();
-        if seg >= self.segment_count() || n == 0 {
+        if seg >= self.segment_count() || n == 0 || !t.is_finite() || t <= 0.0 || t >= 1.0 || !dv.x.is_finite() || !dv.y.is_finite() {
             return false;
         }
+        // Endpoints would require infinite handle displacement. Reject overflow before changing
+        // either handle so a failed bend cannot partially corrupt a document.
         let v = dv / (3.0 * t * (1.0 - t));
+        let (Some(a), Some(b)) = (self.anchors.get(seg % n), self.anchors.get((seg + 1) % n)) else { return false };
+        let out = a.h_out + v;
+        let incoming = b.h_in + v;
+        if !v.x.is_finite() || !v.y.is_finite() || !out.x.is_finite() || !out.y.is_finite() || !incoming.x.is_finite() || !incoming.y.is_finite() {
+            return false;
+        }
         if let Some(a) = self.anchors.get_mut(seg % n) {
             a.set_handle(true, a.h_out + v, false);
         }
@@ -293,6 +301,10 @@ impl SubPath {
     /// keeps them. False when there is no such anchor or no direction (the neighbours coincide).
     pub fn smooth_anchor(&mut self, i: usize) -> bool {
         let n = self.anchors.len();
+        // Reject out-of-range indices before computing i + 1 (usize::MAX can overflow).
+        if i >= n {
+            return false;
+        }
         let prev = if i > 0 {
             Some(i - 1)
         } else if self.closed {
@@ -602,6 +614,58 @@ mod tests {
         let area0 = pd.subpaths[0].area();
         pd.subpaths[0].insert_anchor(1, 0.3);
         assert!((pd.subpaths[0].area() - area0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bend_segment_moves_the_midpoint_without_moving_endpoints() {
+        let mut sp = SubPath::polyline(&[Point::new(0.0, 0.0), Point::new(10.0, 0.0)], false);
+        assert!(sp.bend_segment(0, 0.5, kurbo::Vec2::new(0.0, 3.0)));
+        let curve = sp.segment(0);
+        assert_eq!(curve.p0, Point::new(0.0, 0.0));
+        assert_eq!(curve.p3, Point::new(10.0, 0.0));
+        assert!(curve.eval(0.5).distance(Point::new(5.0, 3.0)) < 1e-10);
+    }
+
+    #[test]
+    fn bend_segment_rejects_singular_values_without_partial_mutation() {
+        let original = SubPath::polyline(&[Point::new(0.0, 0.0), Point::new(10.0, 0.0)], false);
+        for t in [-1.0, 0.0, 1.0, 2.0, f64::NAN, f64::INFINITY, f64::from_bits(1)] {
+            let mut sp = original.clone();
+            assert!(!sp.bend_segment(0, t, kurbo::Vec2::new(0.0, 3.0)), "t={t}");
+            assert_eq!(sp, original, "failed bend changed the path at t={t}");
+        }
+        for dv in [kurbo::Vec2::new(f64::INFINITY, 1.0), kurbo::Vec2::new(0.0, f64::NAN), kurbo::Vec2::new(f64::MAX, 0.0)] {
+            let mut sp = original.clone();
+            assert!(!sp.bend_segment(0, 0.5, dv), "dv={dv:?}");
+            assert_eq!(sp, original);
+        }
+        let mut sp = original.clone();
+        assert!(!sp.bend_segment(7, 0.5, kurbo::Vec2::new(1.0, 1.0)));
+        assert_eq!(sp, original);
+    }
+
+    #[test]
+    fn cutting_closed_polygon_at_one_anchor_preserves_every_edge() {
+        let original = square().subpaths.remove(0);
+        let parts = original.cut_at(&[1usize].into_iter().collect());
+        assert_eq!(parts.len(), 1);
+        assert!(!parts[0].closed);
+        assert_eq!(parts[0].anchors.len(), 5);
+        assert_eq!(parts[0].anchors.first().unwrap().p, parts[0].anchors.last().unwrap().p);
+        assert!((parts[0].area() - original.area()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn smoothing_open_endpoints_and_degenerate_neighbours() {
+        let mut sp = SubPath::polyline(&[Point::new(0.0, 0.0), Point::new(12.0, 0.0), Point::new(12.0, 8.0)], false);
+        assert!(sp.smooth_anchor(0));
+        assert_eq!(sp.anchors[0].h_in, sp.anchors[0].p, "an open endpoint has no incoming handle");
+        assert!(sp.anchors[0].has_out());
+        assert!(sp.smooth_anchor(0), "smoothing again is idempotent");
+        assert!(!sp.smooth_anchor(usize::MAX));
+        let mut collapsed = SubPath::polyline(&[Point::ZERO, Point::ZERO, Point::ZERO], false);
+        assert!(!collapsed.smooth_anchor(1));
+        assert!(collapsed.anchors.iter().all(|a| a.kind == AnchorKind::Corner));
     }
 
     #[test]

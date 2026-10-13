@@ -217,6 +217,114 @@ fn framing_never_panics_on_malformed_messages() {
 }
 
 #[test]
+fn missing_or_invalid_jsonrpc_version_never_executes_commands_or_notifications() {
+    let mut s = server();
+    let before = doc_json(&document(&mut s));
+    for version in [Value::Null, json!("1.0"), json!(2), json!({}), json!("2.1")] {
+        let request = json!({
+            "jsonrpc": version,
+            "id": "bad-version",
+            "method": "tools/call",
+            "params": {"name": "draw_shape", "arguments": {"shape": "rectangle", "x": 1, "y": 1, "width": 8, "height": 8}}
+        });
+        let raw = s.handle_line(&request.to_string()).expect("an invalid request gets an error");
+        let reply: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(reply["id"], "bad-version");
+        assert_eq!(reply["error"]["code"], -32600, "{request}: {reply}");
+        assert_eq!(doc_json(&document(&mut s)), before, "{request} changed the document");
+    }
+    let missing = json!({"id": 7, "method": "ping"});
+    let response: Value = serde_json::from_str(&s.handle_line(&missing.to_string()).unwrap()).unwrap();
+    assert_eq!(response["error"]["code"], -32600);
+
+    for invalid_notification in [json!({"method": "notifications/initialized"}), json!({"jsonrpc": "1.0", "method": "notifications/initialized"})] {
+        assert!(s.handle_line(&invalid_notification.to_string()).is_none());
+        assert!(!s.is_initialized(), "invalid protocol notifications must not alter state");
+    }
+    assert_eq!(rpc(&mut s, 8, "ping", json!({}))["result"], json!({}));
+    assert!(!s.is_initialized(), "invalid frames must not poison future valid requests");
+}
+
+#[test]
+fn jsonrpc_batches_preserve_request_order_and_discard_notifications() {
+    let mut s = server();
+    let batch = json!([
+        {"jsonrpc": "2.0", "id": "first", "method": "ping"},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 9, "method": "no.such.method"},
+        {"jsonrpc": "2.0", "id": 10, "method": "ping"}
+    ]);
+    let answer = s.handle_line(&batch.to_string()).expect("requests receive a batch response");
+    let replies: Value = serde_json::from_str(&answer).unwrap();
+    let items = replies.as_array().unwrap();
+    assert_eq!(items.len(), 3, "notifications must have no response");
+    assert_eq!(items[0]["id"], "first");
+    assert_eq!(items[0]["result"], json!({}));
+    assert_eq!(items[1]["id"], 9);
+    assert_eq!(items[1]["error"]["code"], -32601);
+    assert_eq!(items[2]["id"], 10);
+    assert_eq!(items[2]["result"], json!({}));
+    assert!(s.is_initialized(), "notification in a batch must update the protocol state");
+    assert!(s.handle_line(r#"[{"jsonrpc":"2.0","method":"notifications/initialized"}]"#).is_none());
+    let empty: Value = serde_json::from_str(&s.handle_line("[]").unwrap()).unwrap();
+    assert_eq!(empty["error"]["code"], -32600);
+}
+
+#[test]
+fn unknown_tool_arguments_are_rejected_without_mutating_the_document() {
+    let mut s = server();
+    let before = doc_json(&document(&mut s));
+    let rejected = rpc(
+        &mut s,
+        4,
+        "tools/call",
+        json!({"name": "draw_shape", "arguments": {"shape": "rectangle", "x": 1, "y": 1, "width": 10, "height": 10, "__unexpected": true}}),
+    );
+    assert_eq!(rejected["error"]["code"], -32602, "{rejected}");
+    assert!(rejected["error"]["message"].as_str().unwrap().contains("__unexpected"));
+    assert_eq!(doc_json(&document(&mut s)), before, "schema rejection must not execute any tool");
+    let valid = call(&mut s, "draw_shape", json!({"shape": "rectangle", "x": 1, "y": 1, "width": 10, "height": 10}));
+    assert_eq!(valid["result"]["isError"], false, "{valid}");
+    assert_ne!(doc_json(&document(&mut s)), before, "valid tools must still execute after rejection");
+}
+
+#[test]
+fn negotiated_modern_protocol_exposes_private_cache_contracts_only_on_supported_methods() {
+    let mut s = server();
+    let init = rpc(&mut s, 1, "initialize", json!({"protocolVersion": "2026-07-28"}));
+    assert_eq!(init["result"]["protocolVersion"], "2026-07-28");
+    let list = rpc(&mut s, 2, "resources/list", json!({}));
+    assert_eq!(list["result"]["resultType"], "complete");
+    assert_eq!(list["result"]["ttlMs"], 600_000);
+    assert_eq!(list["result"]["cacheScope"], "private");
+    let read = rpc(&mut s, 3, "resources/read", json!({"uri": "vectorcraft://document/json"}));
+    assert_eq!(read["result"]["ttlMs"], 0, "document contents must not be cached");
+    let ping = rpc(&mut s, 4, "ping", json!({}));
+    assert!(ping["result"].get("ttlMs").is_none());
+    let legacy = rpc(&mut s, 5, "resources/list", json!({"_meta": {"io.modelcontextprotocol/protocolVersion": "2025-06-18"}}));
+    assert!(legacy["result"].get("ttlMs").is_none(), "per-request legacy clients must not receive modern extensions");
+}
+
+#[test]
+fn stdio_transport_does_not_answer_notifications_or_client_responses() {
+    let mut s = server();
+    let input = concat!(
+        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}\n"
+    );
+    let mut output = Vec::new();
+    s.serve(std::io::Cursor::new(input), &mut output).unwrap();
+    let lines: Vec<Value> = String::from_utf8(output).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(lines.len(), 2, "stdout must contain precisely one JSON response per request");
+    assert_eq!(lines[0]["id"], 1);
+    assert_eq!(lines[1]["id"], 2);
+    assert!(lines.iter().all(|v| v["result"] == json!({})));
+    assert!(s.is_initialized());
+}
+
+#[test]
 fn resources_are_json() {
     let mut s = server();
     let uri = doc_uri_json(&mut s);

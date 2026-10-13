@@ -176,6 +176,54 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// Concurrent saves are whole-document replacements: never a mix of two serialized files.
+    #[test]
+    fn simultaneous_writes_finish_with_one_complete_document() {
+        let d = dir("concurrent");
+        let path = d.join("shared.vectorcraft");
+        let payloads: Vec<Vec<u8>> = (0..4).map(|i| vec![i; 8192]).collect();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(payloads.len()));
+        let mut writers = vec![];
+        for payload in &payloads {
+            let payload = payload.clone();
+            let path = path.clone();
+            let barrier = barrier.clone();
+            writers.push(std::thread::spawn(move || {
+                barrier.wait();
+                write_atomic(&path, &payload)
+            }));
+        }
+        for writer in writers {
+            writer.join().unwrap().unwrap();
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(payloads.contains(&bytes), "concurrent saves must never mix payloads");
+        assert!(leftovers(&d, "shared.vectorcraft").is_empty(), "no temporary files remain");
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_through_symlink_preserves_the_link_and_original_on_error() {
+        let d = dir("atomic-symlink");
+        let target = d.join("document.vectorcraft");
+        let link = d.join("shortcut.vectorcraft");
+        std::fs::write(&target, b"original").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let failed = write_atomic_with(&link, |f| {
+            f.write_all(b"unfinished")?;
+            Err(io::Error::other("simulated write failure"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(std::fs::read(&link).unwrap(), b"original");
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        write_atomic(&link, b"complete").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"complete");
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(leftovers(&d, "document.vectorcraft"), ["shortcut.vectorcraft"]);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
     /// A link of that name, even one to nothing, is never replaced or written through.
     #[cfg(unix)]
     #[test]

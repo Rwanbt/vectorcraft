@@ -521,6 +521,10 @@ pub fn base64_encode(data: &[u8]) -> String {
     out
 }
 
+/// Decode whitespace-tolerant, canonical padded base64.
+///
+/// Invalid padding, padding before the final quartet and unused non-zero trailing bits are
+/// rejected. A damaged image or embedded profile must never silently decode to different bytes.
 pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
     let val = |c: u8| B64.iter().position(|&b| b == c).map(|p| p as u32);
     let clean: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
@@ -528,22 +532,31 @@ pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
         return None;
     }
     let mut out = Vec::with_capacity(clean.len() / 4 * 3);
-    for c in clean.chunks(4) {
-        let mut n = 0u32;
-        let mut pad = 0;
-        for &b in c {
-            n <<= 6;
-            if b == b'=' {
-                pad += 1;
-            } else {
-                n |= val(b)?;
-            }
+    let quartets = clean.len() / 4;
+    for (i, c) in clean.chunks(4).enumerate() {
+        let pad = match (c[2], c[3]) {
+            (b'=', b'=') => 2,
+            (b'=', _) => return None,
+            (_, b'=') => 1,
+            _ => 0,
+        };
+        if pad != 0 && i + 1 != quartets {
+            return None;
         }
+        let a = val(c[0])?;
+        let b = val(c[1])?;
+        let third = if pad == 2 { 0 } else { val(c[2])? };
+        let fourth = if pad > 0 { 0 } else { val(c[3])? };
+        // RFC 4648: padding bits must be zero; otherwise multiple encodings represent one file.
+        if (pad == 2 && b & 15 != 0) || (pad == 1 && third & 3 != 0) {
+            return None;
+        }
+        let n = (a << 18) | (b << 12) | (third << 6) | fourth;
         out.push((n >> 16) as u8);
         if pad < 2 {
             out.push((n >> 8) as u8);
         }
-        if pad < 1 {
+        if pad == 0 {
             out.push(n as u8);
         }
     }
@@ -607,6 +620,17 @@ mod tests {
         let mut v: serde_json::Value = serde_json::from_slice(&save(&d, false)).unwrap();
         v["version"] = 99.into();
         assert!(matches!(load(&serde_json::to_vec(&v).unwrap()), Err(FormatError::TooNew(99))));
+    }
+
+    #[test]
+    fn base64_rejects_invalid_padding_and_noncanonical_trailing_bits() {
+        for invalid in ["=", "A", "AAA", "A===", "====", "=AAA", "A=AA", "AA=A", "AA==AA==", "AA=!", "TQ==TQ==", "TR==", "TWF=", "TQ==#", "____"] {
+            assert_eq!(base64_decode(invalid), None, "{invalid:?} must not decode");
+        }
+        assert_eq!(base64_decode("TQ=="), Some(b"M".to_vec()));
+        assert_eq!(base64_decode(" T Q = = \n"), Some(b"M".to_vec()));
+        assert_eq!(base64_decode("TWE="), Some(b"Ma".to_vec()));
+        assert_eq!(base64_decode("TWFu"), Some(b"Man".to_vec()));
     }
 
     #[test]

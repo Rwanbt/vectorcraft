@@ -126,6 +126,11 @@ impl Server {
             }
             return Some(error(id.unwrap_or(Value::Null), INVALID_REQUEST, "missing `method`"));
         };
+        // Every MCP message uses JSON-RPC 2.0. Malformed notifications must not change
+        // session state, and malformed requests must not execute tools or commands.
+        if o.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+            return id.map(|id| error(id, INVALID_REQUEST, "`jsonrpc` must be \"2.0\""));
+        }
         let params = o.get("params").cloned().unwrap_or(Value::Null);
         let Some(id) = id else {
             self.notification(method, &params);

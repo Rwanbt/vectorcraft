@@ -1,0 +1,270 @@
+# Fork-only quality gate: do not merge a draft PR until all required checks pass.
+# Keep this separate from release packaging and optional corpus workflows.
+name: Fork quality and coverage
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_BUILD_JOBS: "2"
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  format-fast:
+    name: Fast rustfmt preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: rustfmt
+      - name: Check Rust formatting before expensive workspace builds
+        run: cargo fmt --all -- --check
+
+  workspace-linux:
+    name: Linux - complete workspace quality gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libgtk-3-dev libasound2-dev libudev-dev \
+            libfontconfig1-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - name: Rust 1.95 with lint and wasm targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vectorcraft-fork-quality
+      - name: Reject inconsistent lockfile
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - name: Canonical project checks (fmt, clippy, tests, assets, brands, layers, wasm)
+        run: cargo xtask ci
+      - name: Collect actual harness test counts
+        run: |
+          cargo xtask stats --exact | tee test-counts.txt
+          if grep -Eq '[[:space:]]error[[:space:]]*$' test-counts.txt; then
+            echo "::error::At least one crate's test harness could not be enumerated"
+            exit 1
+          fi
+      - name: Archive exact test counts
+        uses: actions/upload-artifact@v7
+        with:
+          name: vectorcraft-exact-test-counts
+          path: test-counts.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  geometry-coverage:
+    name: Linux - instrumented geometry baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust 1.95 with LLVM tools
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vectorcraft-geom-cov
+      - name: Measure geometry only (unit tests and integration tests)
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov -p vectorcraft-geom --locked --no-report
+          cargo llvm-cov report -p vectorcraft-geom --lcov --output-path coverage/geom.lcov
+          cargo llvm-cov report -p vectorcraft-geom --json --output-path coverage/geom.json
+          cargo llvm-cov report -p vectorcraft-geom --summary-only | tee coverage/geom-summary.txt
+      - name: Ensure geometry reports exclude unrelated workspace crates
+        run: |
+          python3 - <<'PY'
+          import json
+          with open("coverage/geom.json", encoding="utf-8") as report:
+              coverage = json.load(report)
+          paths = [entry["filename"].replace("\\", "/") for section in coverage["data"] for entry in section["files"]]
+          if not paths:
+              raise SystemExit("Geometry report unexpectedly has no source files")
+          outside = [path for path in paths if "/crates/geom/src/" not in path]
+          if outside:
+              raise SystemExit(f"Coverage included unrelated source files: {outside[:5]}")
+          print(f"Validated isolated geometry coverage across {len(paths)} source files")
+          PY
+      - name: Publish machine-readable baseline (no inferred percentages)
+        uses: actions/upload-artifact@v7
+        with:
+          name: vectorcraft-geometry-coverage
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 30
+
+  format-coverage:
+    name: Linux - instrumented native format baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust 1.95 with LLVM tools
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vectorcraft-format-cov
+      - name: Run native format tests and collect isolated coverage
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov -p vectorcraft-format --locked --no-report
+          cargo llvm-cov report -p vectorcraft-format --lcov --output-path coverage/format.lcov
+          cargo llvm-cov report -p vectorcraft-format --json --output-path coverage/format.json
+          cargo llvm-cov report -p vectorcraft-format --summary-only | tee coverage/format-summary.txt
+      - name: Validate native format coverage has no unrelated crates
+        run: |
+          python3 - <<'PY'
+          import json
+          with open("coverage/format.json", encoding="utf-8") as report:
+              coverage = json.load(report)
+          paths = [entry["filename"].replace("\\", "/") for section in coverage["data"] for entry in section["files"]]
+          if not paths:
+              raise SystemExit("Format report unexpectedly has no source files")
+          outside = [path for path in paths if "/crates/format/src/" not in path]
+          if outside:
+              raise SystemExit(f"Format coverage included unrelated source: {outside[:5]}")
+          print(f"Validated format coverage across {len(paths)} source files")
+          PY
+      - name: Publish native format coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: vectorcraft-native-format-coverage
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 30
+
+  engine-mcp-coverage:
+    name: Linux - instrumented ${{ matrix.source }} baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: vectorcraft-engine
+            source: engine
+          - package: vectorcraft-mcp
+            source: mcp
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install native dependencies for engine and MCP tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libgtk-3-dev libasound2-dev libudev-dev \
+            libfontconfig1-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vectorcraft-${{ matrix.source }}-cov
+      - name: Run all tests and measure isolated package coverage
+        shell: bash
+        env:
+          PACKAGE: ${{ matrix.package }}
+          SOURCE: ${{ matrix.source }}
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov -p "$PACKAGE" --locked --no-report
+          cargo llvm-cov report -p "$PACKAGE" --lcov --output-path "coverage/$SOURCE.lcov"
+          cargo llvm-cov report -p "$PACKAGE" --json --output-path "coverage/$SOURCE.json"
+          cargo llvm-cov report -p "$PACKAGE" --summary-only | tee "coverage/$SOURCE-summary.txt"
+      - name: Reject foreign source files in coverage
+        shell: bash
+        env:
+          SOURCE: ${{ matrix.source }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          source = os.environ["SOURCE"]
+          with open(f"coverage/{source}.json", encoding="utf-8") as report:
+              coverage = json.load(report)
+          paths = [entry["filename"].replace("\\", "/") for section in coverage["data"] for entry in section["files"]]
+          if not paths:
+              raise SystemExit(f"{source}: coverage report unexpectedly empty")
+          foreign = [path for path in paths if f"/crates/{source}/src/" not in path]
+          if foreign:
+              raise SystemExit(f"{source}: unrelated source file(s) found: {foreign[:5]}")
+          print(f"{source}: validated coverage over {len(paths)} source files")
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vectorcraft-${{ matrix.source }}-coverage
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 30
+
+  document-protocol-portability:
+    name: Native document and MCP - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vectorcraft-format-mcp-${{ matrix.os }}
+      - name: Test file data integrity and headless MCP protocol across platforms
+        run: cargo test -p vectorcraft-format -p vectorcraft-mcp --locked
+
+  geometry-portability:
+    name: Geometry regression - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vectorcraft-geom-${{ matrix.os }}
+      - name: Portable deterministic geometry tests
+        run: cargo test -p vectorcraft-geom --locked
