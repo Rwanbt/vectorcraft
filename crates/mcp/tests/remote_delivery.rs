@@ -1,7 +1,7 @@
 //! Remote control channel delivery contracts against a real loopback TCP socket.
 //! Dropped or malformed acknowledgements cannot cause a mutating action to be replayed.
 //! Integration tests may unwrap and panic to report failures.
-//! 
+//!
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -44,9 +44,7 @@ fn exercise_failed_ack(first_reply: Option<&str>, expected_error: &str) {
     });
 
     let mut remote = Remote::connect(&addr.to_string()).unwrap();
-    let err = remote
-        .call("engine.execute", json!({"command": "edit.clear", "params": {}}))
-        .unwrap_err();
+    let err = remote.call("engine.execute", json!({"command": "edit.clear", "params": {}})).unwrap_err();
     assert!(err.contains(expected_error), "{err}");
     let response = remote.call("document.inspect", json!({})).unwrap();
     assert_eq!(response, json!({"alive": true}));

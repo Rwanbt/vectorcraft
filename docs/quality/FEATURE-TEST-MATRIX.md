@@ -2,7 +2,7 @@
 
 **Base commit:** `436d7ecdd37298503ee1bb86d0349f9b7b2dc896`
 **Audit branch:** `test/fork-quality-baseline-20261012`
-**Status:** the full eight-job suite passed at `0bc251fad1aa442d8d56e0d1725a9beeb4d22e59` (workflow 38313490657). New JSON-RPC version validation and native-file/MCP portability jobs must pass at the latest SHA.
+**Status:** the full ten-job quality workflow passed at `95270cf4ef5cbe8cacf8432029da60f86e17b40b` (workflow 38320403378), including version validation and Windows/macOS native-file/MCP tests. New remote delivery tests require latest-head validation.
 
 | ID | Component and contract | Unit/property tests | Integration/E2E | CI evidence | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -16,7 +16,8 @@
 | VC-FORMAT-002 | Corrupted base64 payloads (padding, noncanonical trailing bits) are rejected before importing images | `crates/format/src/lib.rs`, `base64_rejects_invalid_padding_and_noncanonical_trailing_bits`; `crates/format/tests/links.rs`, `malformed_embedded_image_base64_is_rejected_during_native_open` | Native file open | **PASS** 38278037131; newer head pending | PARTIAL |
 | VC-FORMAT-003 | Concurrent atomic saves never produce torn files and clean temporary artifacts; symlink writes preserve link and original after failed write | `crates/format/src/atomic.rs`, `simultaneous_writes_finish_with_one_complete_document`, `atomic_write_through_symlink_preserves_the_link_and_original_on_error` | Native file save | **PASS** 38278037131; newer head pending | PARTIAL |
 | VC-FORMAT-001 | Native save/open, old `.drawcraft` compatibility, corruption rejection | `crates/format/tests/prop_format.rs`, `native_v3.rs`, `native_v4.rs` | Full editor reopen/export still required | **PASS** 38278037131; newer head pending | UNVERIFIED |
-| VC-MCP-005 | MCP rejects missing/incorrect JSON-RPC versions before executing tools or stateful notifications; valid requests continue | `crates/mcp/tests/protocol_props.rs`: `missing_or_invalid_jsonrpc_version_never_executes_commands_or_notifications` | `Server::handle_line` | Latest SHA and Windows/macOS MCP jobs pending | PARTIAL |
+| VC-MCP-006 | Remote TCP loss of acknowledgement, bad JSON or mismatched response ID must not replay a mutating command; a later explicit request reconnects | `crates/mcp/tests/remote_delivery.rs`: three real loopback socket tests | TCP loopback and remote backend `Remote::call` | Latest head pending | PARTIAL |
+| VC-MCP-005 | MCP rejects missing/incorrect JSON-RPC versions before executing tools or stateful notifications; valid requests continue | `crates/mcp/tests/protocol_props.rs`: `missing_or_invalid_jsonrpc_version_never_executes_commands_or_notifications` | `Server::handle_line` | **PASS** 38320403378, including Windows/macOS | PARTIAL |
 | VC-MCP-002 | MCP batch replies preserve IDs/order and discard notifications; stdio responds only to requests | `crates/mcp/tests/protocol_props.rs`: `jsonrpc_batches_preserve_request_order_and_discard_notifications`, `stdio_transport_does_not_answer_notifications_or_client_responses` | Real `Server::serve` byte transport | **PASS** 38313490657 (MCP+workspace); latest SHA pending | PARTIAL |
 | VC-MCP-003 | Unknown tool arguments fail with -32602 without mutating the document; valid calls still work | `unknown_tool_arguments_are_rejected_without_mutating_the_document` | Headless document API | **PASS** 38313490657 (MCP+workspace); latest SHA pending | PARTIAL |
 | VC-MCP-004 | Modern protocol cache hints marked private and latest document reads uncacheable; legacy override omits new fields | `negotiated_modern_protocol_exposes_private_cache_contracts_only_on_supported_methods` | Version negotiation | **PASS** 38313490657 (MCP+workspace); latest SHA pending | PARTIAL |
