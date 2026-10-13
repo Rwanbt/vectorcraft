@@ -78,18 +78,21 @@ impl Backend for Remote {
         let id = self.next_id;
         self.next_id += 1;
         let line = json!({"id": id, "method": method, "params": params}).to_string();
-        // One retry with a fresh connection (the app may have restarted).
-        let reply = match self.roundtrip(&line) {
-            Ok(r) => r,
-            Err(_) => {
-                self.conn = None;
-                self.roundtrip(&line).map_err(|e| {
-                    self.conn = None;
-                    format!("VectorCraft app at {} is not reachable: {e}", self.addr)
-                })?
-            }
-        };
-        let v: Value = serde_json::from_str(reply.trim()).map_err(|e| format!("bad reply from app: {e}"))?;
+        // A lost reply does not mean the command failed: it may already have changed the
+        // document. Never replay it automatically after reconnecting (e.g. a second delete,
+        // duplicate insertion or export). The next explicit call reconnects to a fresh socket.
+        let reply = self.roundtrip(&line).map_err(|e| {
+            self.conn = None;
+            format!("VectorCraft app at {}: control request failed; outcome unknown, not retried: {e}", self.addr)
+        })?;
+        let v: Value = serde_json::from_str(reply.trim()).map_err(|e| {
+            self.conn = None;
+            format!("bad reply from app (request outcome unknown): {e}")
+        })?;
+        if v.get("id").and_then(Value::as_u64) != Some(id) {
+            self.conn = None;
+            return Err(format!("wrong reply id from app: expected {id}; request outcome unknown"));
+        }
         if v.get("ok").and_then(Value::as_bool) == Some(true) {
             Ok(v.get("result").cloned().unwrap_or(Value::Null))
         } else {
